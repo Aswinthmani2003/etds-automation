@@ -250,20 +250,20 @@ async function parseExcel(file) {
   return map;
 }
 
-async function extractBarcodeFromPDF(pdfBytes) {
+async function extractBarcodeFromPDF(pdfFile) {
   try {
-    const doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
-    for (let p = 1; p <= Math.min(doc.numPages, 3); p++) {
-      const page = await doc.getPage(p);
-      const text = await page.getTextContent();
-      const allText = text.items.map(t => t.str).join(' ');
-      const digits = allText.replace(/[^0-9]/g, '');
-      if (digits.length >= 20) {
-        return digits.substring(0, 20);
-      }
-    }
-    return null;
+    const formData = new FormData();
+    formData.append('pdf', pdfFile);
+
+    const response = await fetch('/api/decode', {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await response.json();
+    return data.barcode || null;
   } catch (e) {
+    console.error('Barcode decode error:', e);
     return null;
   }
 }
@@ -286,7 +286,7 @@ document.getElementById('processBtn').addEventListener('click', async () => {
       setProgress(10 + Math.round(80 * i / state.pdfFiles.length), 'Page ' + (i + 1) + ' of ' + state.pdfFiles.length);
 
       const bytes = await pdf.arrayBuffer();
-      const barcode = await extractBarcodeFromPDF(bytes);
+      const barcode = await extractBarcodeFromPDF(pdf);
 
       const hit = barcode ? tokenMap.get(barcode) : null;
       const newName = hit ? hit + '.pdf' : null;
