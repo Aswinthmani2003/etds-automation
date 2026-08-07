@@ -919,7 +919,13 @@ const $ = id => document.getElementById(id);
 /* ---------- upload wiring ---------- */
 function wireDrop(dropId, inputId, onFiles) {
   const drop = $(dropId), input = $(inputId);
-  drop.addEventListener("click", () => input.click());
+  if (!drop) console.error("Drop zone not found:", dropId);
+  if (!input) console.error("Input element not found:", inputId);
+  if (drop && input) {
+    drop.style.cursor = "pointer";
+    drop.addEventListener("click", () => { console.log("Clicked:", dropId); input.click(); });
+    console.log("Click handler attached to:", dropId);
+  }
   input.addEventListener("change", () => { if (input.files.length) onFiles([...input.files]); input.value = ""; });
   ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
   ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
