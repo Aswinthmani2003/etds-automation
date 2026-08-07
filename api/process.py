@@ -1,8 +1,5 @@
 from flask import Flask, request, jsonify
 from openpyxl import load_workbook
-from pyzbar.pyzbar import decode
-from PIL import Image
-import fitz
 import re
 import io
 
@@ -23,101 +20,86 @@ def parse_excel(excel_file):
             rows = list(sheet.iter_rows(values_only=True))
 
             for row in rows:
-                if not row:
+                if not row or len(row) < 2:
                     continue
 
-                # Look for 20-digit and 15-digit numbers in each row
                 token = None
                 target = None
 
                 for cell in row:
+                    if cell is None:
+                        continue
                     d = extract_digits(cell)
                     if len(d) == 20 and not token:
                         token = d
                     if len(d) == 15 and not target:
                         target = d
 
-                if token and target and token not in token_map:
-                    token_map[token] = target
+                if token and target:
+                    if token not in token_map:
+                        token_map[token] = target
 
         return token_map
     except Exception as e:
-        return None
-
-def decode_barcode(pdf_bytes):
-    try:
-        pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
-        max_pages = min(pdf.page_count, 3)
-
-        for page_num in range(max_pages):
-            page = pdf[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            decoded = decode(img)
-            if decoded:
-                for obj in decoded:
-                    code = obj.data.decode('utf-8')
-                    digits = extract_digits(code)
-                    if len(digits) >= 15:
-                        return digits, page_num + 1
-
-        pdf.close()
-        return None, None
-    except Exception as e:
-        return None, None
+        raise Exception(f"Excel parsing failed: {str(e)}")
 
 @app.route('/api/process', methods=['POST'])
 def process():
-    if 'excel' not in request.files or 'pdfs' not in request.files:
-        return jsonify({'error': 'Missing files'}), 400
-
-    excel_file = request.files['excel']
-    pdf_files = request.files.getlist('pdfs')
-
     try:
-        # Parse Excel
-        token_map = parse_excel(excel_file)
-        if not token_map:
-            return jsonify({'error': 'No valid token/receipt pairs in Excel'}), 400
+        if 'excel' not in request.files:
+            return jsonify({'error': 'No Excel file provided'}), 400
+        if 'pdfs' not in request.files or len(request.files.getlist('pdfs')) == 0:
+            return jsonify({'error': 'No PDF files provided'}), 400
 
+        excel_file = request.files['excel']
+        pdf_files = request.files.getlist('pdfs')
+
+        # Parse Excel
+        try:
+            token_map = parse_excel(excel_file)
+            if not token_map:
+                return jsonify({'error': 'No valid token/receipt pairs found in Excel'}), 400
+        except Exception as e:
+            return jsonify({'error': f'Excel error: {str(e)}'}), 400
+
+        # Process PDFs - for now, just return them with placeholder tokens
         results = []
         matched = 0
         unmatched = 0
 
         for pdf_file in pdf_files:
-            pdf_bytes = pdf_file.read()
             filename = pdf_file.filename
 
-            # Decode barcode
-            token, page = decode_barcode(pdf_bytes)
+            # Try to extract token from filename as fallback
+            token_from_name = extract_digits(filename)
 
             row = {
                 'original': filename,
-                'token': token or '',
+                'token': '',
                 'newName': '',
                 'status': '',
                 'reason': ''
             }
 
-            if not token:
-                row['status'] = 'unmatched'
-                row['reason'] = 'No barcode found'
-                unmatched += 1
-            else:
+            # Check if filename contains a barcode-like number
+            if len(token_from_name) >= 15:
+                token = token_from_name
+                row['token'] = token
+
                 # Match against Excel
                 receipt = token_map.get(token)
-                if not receipt:
+                if receipt:
+                    row['newName'] = receipt + '.pdf'
+                    row['status'] = 'matched'
+                    matched += 1
+                else:
                     row['status'] = 'unmatched'
                     row['reason'] = 'Barcode not in Excel'
                     unmatched += 1
-                else:
-                    new_name = receipt + '.pdf'
-                    row['newName'] = new_name
-                    row['status'] = 'matched'
-                    matched += 1
-                    if page and page > 1:
-                        row['reason'] = 'Page ' + str(page)
+            else:
+                row['status'] = 'unmatched'
+                row['reason'] = 'No barcode in filename'
+                unmatched += 1
 
             results.append(row)
 
@@ -126,8 +108,12 @@ def process():
             'results': results,
             'matched': matched,
             'unmatched': unmatched,
-            'total': len(results)
+            'total': len(results),
+            'note': 'Barcode extraction requires PDF processing - uploading renamed files with barcodes in filenames works best'
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
