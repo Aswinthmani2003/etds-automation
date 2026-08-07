@@ -2,6 +2,6 @@ Flask
 flask-cors
 openpyxl
 Pillow
-pdf2image
+PyMuPDF
 pyzbar
 python-multipart

@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 from openpyxl import load_workbook
-from pdf2image import convert_from_bytes
 from pyzbar.pyzbar import decode
+from PIL import Image
+import fitz
 import re
 import io
 
@@ -45,20 +46,25 @@ def parse_excel(excel_file):
 
 def decode_barcode(pdf_bytes):
     try:
-        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=3)
+        pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+        max_pages = min(pdf.page_count, 3)
 
-        for page_num, image in enumerate(images, 1):
-            # Try decoding with pyzbar
-            decoded = decode(image)
+        for page_num in range(max_pages):
+            page = pdf[page_num]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            decoded = decode(img)
             if decoded:
                 for obj in decoded:
                     code = obj.data.decode('utf-8')
                     digits = extract_digits(code)
                     if len(digits) >= 15:
-                        return digits, page_num
+                        return digits, page_num + 1
 
+        pdf.close()
         return None, None
-    except:
+    except Exception as e:
         return None, None
 
 @app.route('/api/process', methods=['POST'])
