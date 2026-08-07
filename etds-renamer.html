@@ -1151,18 +1151,18 @@ $("processBtn").addEventListener("click", async () => {
   state.renamedEntries = [];
 
   try {
-    setProgress(0, "Reading Excel…");
+    setProgress(0, "Reading Excel...");
     const excel = await parseExcel(state.excelFile);
     state.tokenMap = excel.map;
     let excelNote = excel.map.size + " token rows loaded from Excel";
-    if (excel.dupTokens.size) excelNote += " Â· " + excel.dupTokens.size + " duplicate token(s) in Excel (first occurrence used)";
+    if (excel.dupTokens.size) excelNote += " | " + excel.dupTokens.size + " duplicate token(s) in Excel (first occurrence used)";
     $("excelSummary").textContent = excelNote;
     if (excel.sci > 0 && excel.map.size === 0) {
       alert("The Excel seems to store token numbers in scientific notation (e.g. 2.6E+19), so exact 20-digit tokens cannot be recovered. Please re-export the report with token numbers as text.");
     }
     if (excel.map.size === 0) throw new Error("No rows with a 20-digit token and 15-digit receipt number were found in the Excel.");
 
-    setProgress(2, "Reading PDFs…");
+    setProgress(2, "Reading PDFs...");
     const entries = await collectPdfEntries();
     if (!entries.length) throw new Error("No PDF files found in the upload.");
 
@@ -1198,7 +1198,7 @@ $("processBtn").addEventListener("click", async () => {
           row.newName = finalName;
           if (n > 1) { row.status = "duplicate"; row.reason = "Another PDF already matched this token/receipt"; warnings++; }
           else { row.status = "matched"; }
-          if (res.page && res.page > 1) { row.reason = (row.reason ? row.reason + " Â· " : "") + "Barcode found on page " + res.page; }
+          if (res.page && res.page > 1) { row.reason = (row.reason ? row.reason + " | " : "") + "Barcode found on page " + res.page; }
           outZip.file(finalName, e.bytes);
           state.renamedEntries.push({ name: finalName, bytes: e.bytes });
           matched++;
@@ -1214,7 +1214,7 @@ $("processBtn").addEventListener("click", async () => {
       $("tWarn").textContent = warnings;
     }
 
-    setProgress(99, "Building ZIP…");
+    setProgress(99, "Building ZIP...");
     state.outputBlob = await outZip.generateAsync({ type: "blob" });
     setProgress(100, "Done — " + matched + " renamed, " + unmatched + " unmatched" + (warnings ? ", " + warnings + " warning(s)" : "") + ".");
     $("downloadBtn").style.display = "inline-block";
@@ -1234,8 +1234,8 @@ function appendResultRow(r) {
     : '<span class="chip bad">Unmatched</span>';
   tr.innerHTML =
     "<td>" + esc(r.original) + "</td>" +
-    '<td class="mono">' + esc(r.token || "—") + "</td>" +
-    '<td class="mono">' + esc(r.newName || "—") + "</td>" +
+    '<td class="mono">' + esc(r.token || "-") + "</td>" +
+    '<td class="mono">' + esc(r.newName || "-") + "</td>" +
     "<td>" + chip + (r.reason ? '<div class="reason">' + esc(r.reason) + "</div>" : "") + "</td>";
   $("resultsBody").appendChild(tr);
 }
@@ -1252,7 +1252,7 @@ $("saveFolderBtn").addEventListener("click", async () => {
       await wr.close();
       saved++;
       setProgress(Math.round(saved / state.renamedEntries.length * 100),
-        "Saving… " + saved + "/" + state.renamedEntries.length);
+        "Saving... " + saved + "/" + state.renamedEntries.length);
     }
     setProgress(100, “Saved “ + saved + “ file(s) to folder - ready to upload to Steel City.”);
   } catch (e) {
