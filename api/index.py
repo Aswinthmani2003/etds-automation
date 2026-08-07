@@ -7,8 +7,13 @@ from PIL import Image
 import io
 import zipfile
 import re
+import os
 
-app = Flask(__name__)
+# Get absolute path to public directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
+
+app = Flask(__name__, static_folder=PUBLIC_DIR, static_url_path='')
 CORS(app)
 
 def extract_digits(text):
@@ -89,8 +94,7 @@ def decode_pdf_barcode(pdf_bytes):
 
 @app.route('/')
 def index():
-    with open('public/index.html') as f:
-        return f.read()
+    return app.send_static_file('index.html')
 
 @app.route('/api/process', methods=['POST'])
 def process():
