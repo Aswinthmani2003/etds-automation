@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETDS PDF Renamer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #ede6e6;
+      color: #18100f;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .header h1 { font-size: 24px; margin-bottom: 5px; }
+    .header p { color: #6b6070; font-size: 14px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .card h2 { font-size: 16px; margin-bottom: 15px; font-weight: 600; }
+    .upload-area {
+      border: 2px dashed #d0bfbf;
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .upload-area:hover { border-color: #e04b3e; background: #fef0ee; }
+    .upload-area.drag { border-color: #e04b3e; background: #fef0ee; }
+    .upload-area input { display: none; }
+    .upload-icon { font-size: 32px; margin-bottom: 10px; }
+    .upload-text { color: #6b6070; margin-bottom: 5px; }
+    .upload-hint { font-size: 12px; color: #a09098; }
+    .file-meta {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #0e7a57;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #e04b3e;
+      color: white;
+    }
+    .btn-primary:hover { background: #c73a2e; transform: translateY(-1px); }
+    .btn-primary:disabled { background: #d0bfbf; cursor: not-allowed; }
+    .progress {
+      display: none;
+      margin-top: 20px;
+    }
+    .progress-bar {
+      height: 6px;
+      background: #ede6e6;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #c73a2e, #e04b3e);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .progress-label { font-size: 12px; color: #6b6070; }
+    .results {
+      display: none;
+      margin-top: 20px;
+    }
+    .results table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .results th {
+      text-align: left;
+      padding: 10px;
+      background: #f8f4f4;
+      border-bottom: 1px solid #e2d4d4;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #a09098;
+    }
+    .results td { padding: 10px; border-top: 1px solid #e2d4d4; }
+    .chip {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .chip.ok { background: #e4f5ee; color: #0e7a57; }
+    .chip.bad { background: #feecec; color: #b42318; }
+    .error {
+      color: #b42318;
+      background: #feecec;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .stat {
+      background: #f8f4f4;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-num { font-size: 24px; font-weight: 700; color: #18100f; }
+    .stat-label { font-size: 12px; color: #6b6070; margin-top: 5px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>ETDS PDF Renamer</h1>
+    <p>Upload Excel report and scanned PDFs - barcodes decoded locally</p>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <div class="card">
+    <h2>1. Upload Excel Report</h2>
+    <div class="upload-area" id="excelArea">
+      <div class="upload-icon">📊</div>
+      <div class="upload-text">Excel Report (.xlsx, .xls, .csv)</div>
+      <div class="upload-hint">Click to browse or drag and drop</div>
+      <input type="file" id="excelInput" accept=".xlsx,.xls,.csv">
+      <div class="file-meta" id="excelMeta"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Upload Scanned PDFs</h2>
+    <div class="upload-area" id="pdfArea">
+      <div class="upload-icon">📄</div>
+      <div class="upload-text">PDFs (.pdf) - Multi-select allowed</div>
+      <div class="upload-hint">Click to browse or drag and drop</div>
+      <input type="file" id="pdfInput" accept=".pdf" multiple>
+      <div class="file-meta" id="pdfMeta"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <button class="btn btn-primary" id="processBtn" disabled>
+      Process & Rename Files
+    </button>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-label" id="progressLabel">Processing...</div>
+    </div>
+
+    <div class="results" id="results">
+      <div class="stats" id="stats"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Original</th>
+            <th>Barcode</th>
+            <th>New Name</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+
+      <button class="btn btn-primary" id="downloadBtn" style="margin-top: 20px;">
+        Download Renamed ZIP
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = { excelFile: null, pdfFiles: [], results: null };
+
+function wireUpload(areaId, inputId, onFiles) {
+  const area = document.getElementById(areaId);
+  const input = document.getElementById(inputId);
+  const meta = document.getElementById(areaId.replace('Area', 'Meta'));
+
+  area.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => {
+    if (input.files.length) onFiles([...input.files]);
+  });
+  area.addEventListener('dragover', (e) => { e.preventDefault(); area.classList.add('drag'); });
+  area.addEventListener('dragleave', () => area.classList.remove('drag'));
+  area.addEventListener('drop', (e) => { e.preventDefault(); area.classList.remove('drag'); if (e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]); });
+}
+
+wireUpload('excelArea', 'excelInput', (files) => {
+  state.excelFile = files[0];
+  document.getElementById('excelMeta').textContent = 'Loaded: ' + files[0].name;
+  updateReady();
+});
+
+wireUpload('pdfArea', 'pdfInput', (files) => {
+  state.pdfFiles = files;
+  document.getElementById('pdfMeta').textContent = 'Loaded: ' + files.length + ' file(s)';
+  updateReady();
+});
+
+function updateReady() {
+  document.getElementById('processBtn').disabled = !(state.excelFile && state.pdfFiles.length);
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progress').style.display = 'block';
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+function showError(msg) {
+  const err = document.getElementById('error');
+  err.textContent = msg;
+  err.style.display = 'block';
+}
+
+document.getElementById('processBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('processBtn');
+  btn.disabled = true;
+  document.getElementById('error').style.display = 'none';
+  document.getElementById('results').style.display = 'none';
+
+  try {
+    setProgress(0, 'Processing files...');
+
+    const formData = new FormData();
+    formData.append('excel', state.excelFile);
+    for (const pdf of state.pdfFiles) {
+      formData.append('pdfs', pdf);
+    }
+
+    const response = await fetch('/api/process', { method: 'POST', body: formData });
+    const data = await response.json();
+
+    if (!data.success) {
+      showError(data.error || 'Processing failed');
+      setProgress(0, 'Error');
+      btn.disabled = false;
+      return;
+    }
+
+    state.results = { results: data.results, files: state.pdfFiles };
+
+    setProgress(100, 'Done - ' + data.matched + ' matched, ' + data.unmatched + ' unmatched');
+
+    const stats = document.getElementById('stats');
+    stats.innerHTML = `
+      <div class="stat"><div class="stat-num">${data.total}</div><div class="stat-label">Processed</div></div>
+      <div class="stat"><div class="stat-num" style="color:#0e7a57">${data.matched}</div><div class="stat-label">Matched</div></div>
+      <div class="stat"><div class="stat-num" style="color:#b42318">${data.unmatched}</div><div class="stat-label">Unmatched</div></div>
+      <div class="stat"><div class="stat-label">${data.excelNote}</div></div>
+    `;
+
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    for (const result of data.results) {
+      const tr = document.createElement('tr');
+      const chip = result.status === 'matched' ? '<span class="chip ok">Matched</span>' : '<span class="chip bad">Unmatched</span>';
+      tr.innerHTML = `
+        <td>${result.original}</td>
+        <td style="font-family:monospace;font-size:12px">${result.token || '-'}</td>
+        <td style="font-family:monospace;font-size:12px">${result.newName || '-'}</td>
+        <td>${chip}${result.reason ? '<div style="color:#a09098;font-size:11px;margin-top:3px">' + result.reason + '</div>' : ''}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    document.getElementById('results').style.display = 'block';
+  } catch (err) {
+    showError('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('downloadBtn').addEventListener('click', async () => {
+  if (!state.results) return;
+
+  const formData = new FormData();
+  formData.append('results', JSON.stringify(state.results.results));
+  for (const file of state.results.files) {
+    formData.append('pdfs', file);
+  }
+
+  const response = await fetch('/api/download', { method: 'POST', body: formData });
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'renamed_etds.zip';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+
+</body>
+</html>
