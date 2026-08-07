@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 1 - Rename PDFs from Barcodes</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #ede6e6;
+      color: #18100f;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .header h1 { font-size: 24px; margin-bottom: 5px; }
+    .header p { color: #6b6070; font-size: 14px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .card h2 { font-size: 16px; margin-bottom: 15px; font-weight: 600; }
+    .upload-area {
+      border: 2px dashed #d0bfbf;
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .upload-area:hover { border-color: #e04b3e; background: #fef0ee; }
+    .upload-area input { display: none; }
+    .upload-icon { font-size: 32px; margin-bottom: 10px; }
+    .upload-text { color: #6b6070; margin-bottom: 5px; }
+    .file-meta {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #0e7a57;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #e04b3e;
+      color: white;
+    }
+    .btn-primary:hover { background: #c73a2e; }
+    .btn-primary:disabled { background: #d0bfbf; cursor: not-allowed; }
+    .progress {
+      display: none;
+      margin-top: 20px;
+    }
+    .progress-bar {
+      height: 6px;
+      background: #ede6e6;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #c73a2e, #e04b3e);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .progress-label { font-size: 12px; color: #6b6070; }
+    .results {
+      display: none;
+      margin-top: 20px;
+    }
+    .results table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .results th {
+      text-align: left;
+      padding: 10px;
+      background: #f8f4f4;
+      border-bottom: 1px solid #e2d4d4;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #a09098;
+    }
+    .results td { padding: 10px; border-top: 1px solid #e2d4d4; }
+    .chip {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .chip.ok { background: #e4f5ee; color: #0e7a57; }
+    .chip.bad { background: #feecec; color: #b42318; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>Phase 1: Decode Barcodes & Rename PDFs</h1>
+    <p>Upload Excel + PDFs with barcodes. Get back renamed files ready for Phase 2 upload.</p>
+  </div>
+
+  <div class="card">
+    <h2>1. Upload Excel</h2>
+    <div class="upload-area" id="excelArea">
+      <div class="upload-icon">📊</div>
+      <div class="upload-text">Excel Report (.xlsx)</div>
+      <input type="file" id="excelInput" accept=".xlsx,.xls,.csv">
+      <div class="file-meta" id="excelMeta"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Upload Scanned PDFs</h2>
+    <div class="upload-area" id="pdfArea">
+      <div class="upload-icon">📄</div>
+      <div class="upload-text">PDFs with Barcodes</div>
+      <input type="file" id="pdfInput" accept=".pdf" multiple>
+      <div class="file-meta" id="pdfMeta"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <button class="btn btn-primary" id="processBtn" disabled>
+      Decode & Rename
+    </button>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-label" id="progressLabel">Processing...</div>
+    </div>
+
+    <div class="results" id="results">
+      <table>
+        <thead>
+          <tr>
+            <th>Original</th>
+            <th>Barcode Found</th>
+            <th>New Name</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+
+      <button class="btn btn-primary" id="downloadBtn" style="margin-top: 20px;">
+        Download Renamed Files
+      </button>
+
+      <p style="margin-top: 20px; font-size: 13px; color: #6b6070;">
+        Next: Go to Phase 2 at <a href="/index.html" style="color: #e04b3e; text-decoration: none;"><strong>Phase 2 Upload Tool</strong></a>
+        and upload these renamed files with your Excel.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script>
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+const state = { excelFile: null, pdfFiles: [], results: null };
+
+function wireUpload(areaId, inputId, onFiles) {
+  const area = document.getElementById(areaId);
+  const input = document.getElementById(inputId);
+  const meta = document.getElementById(areaId.replace('Area', 'Meta'));
+
+  area.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files.length) onFiles([...input.files]); });
+  area.addEventListener('dragover', (e) => { e.preventDefault(); area.classList.add('drag'); });
+  area.addEventListener('dragleave', () => area.classList.remove('drag'));
+  area.addEventListener('drop', (e) => { e.preventDefault(); area.classList.remove('drag'); if (e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]); });
+}
+
+wireUpload('excelArea', 'excelInput', (files) => {
+  state.excelFile = files[0];
+  document.getElementById('excelMeta').textContent = 'Loaded: ' + files[0].name;
+  updateReady();
+});
+
+wireUpload('pdfArea', 'pdfInput', (files) => {
+  state.pdfFiles = files;
+  document.getElementById('pdfMeta').textContent = 'Loaded: ' + files.length + ' file(s)';
+  updateReady();
+});
+
+function updateReady() {
+  document.getElementById('processBtn').disabled = !(state.excelFile && state.pdfFiles.length);
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progress').style.display = 'block';
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+async function parseExcel(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const map = new Map();
+
+  for (const sheet of wb.Sheets[wb.SheetNames[0]] ? [wb.Sheets[wb.SheetNames[0]]] : []) {
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    rows.forEach(row => {
+      row.forEach((cell, col) => {
+        const d = String(cell || '').replace(/[^0-9]/g, '');
+        if (d.length === 20) {
+          const target = row.find(c => String(c || '').replace(/[^0-9]/g, '').length === 15);
+          if (target) {
+            const t = String(target || '').replace(/[^0-9]/g, '');
+            if (!map.has(d)) map.set(d, t);
+          }
+        }
+      });
+    });
+  }
+
+  return map;
+}
+
+async function extractBarcodeFromPDF(pdfBytes) {
+  try {
+    const doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+    for (let p = 1; p <= Math.min(doc.numPages, 3); p++) {
+      const page = await doc.getPage(p);
+      const text = await page.getTextContent();
+      const allText = text.items.map(t => t.str).join(' ');
+      const digits = allText.replace(/[^0-9]/g, '');
+      if (digits.length >= 20) {
+        return digits.substring(0, 20);
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+document.getElementById('processBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('processBtn');
+  btn.disabled = true;
+  document.getElementById('results').style.display = 'none';
+
+  try {
+    setProgress(0, 'Reading Excel...');
+    const tokenMap = await parseExcel(state.excelFile);
+
+    setProgress(10, 'Processing PDFs...');
+    const results = [];
+    const outZip = new JSZip();
+
+    for (let i = 0; i < state.pdfFiles.length; i++) {
+      const pdf = state.pdfFiles[i];
+      setProgress(10 + Math.round(80 * i / state.pdfFiles.length), 'Page ' + (i + 1) + ' of ' + state.pdfFiles.length);
+
+      const bytes = await pdf.arrayBuffer();
+      const barcode = await extractBarcodeFromPDF(bytes);
+
+      const hit = barcode ? tokenMap.get(barcode) : null;
+      const newName = hit ? hit + '.pdf' : null;
+
+      results.push({
+        original: pdf.name,
+        barcode: barcode || '-',
+        newName: newName || '-',
+        status: newName ? 'matched' : 'no match'
+      });
+
+      outZip.file(newName || 'unmatched_' + pdf.name, bytes);
+    }
+
+    state.results = outZip;
+
+    setProgress(95, 'Finalizing...');
+
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    for (const r of results) {
+      const tr = document.createElement('tr');
+      const chip = r.status === 'matched' ? '<span class="chip ok">Matched</span>' : '<span class="chip bad">No Match</span>';
+      tr.innerHTML = '<td>' + r.original + '</td><td style="font-family:monospace;font-size:12px">' + r.barcode + '</td><td style="font-family:monospace;font-size:12px">' + r.newName + '</td><td>' + chip + '</td>';
+      tbody.appendChild(tr);
+    }
+
+    document.getElementById('results').style.display = 'block';
+    setProgress(100, 'Done');
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('downloadBtn').addEventListener('click', async () => {
+  if (!state.results) return;
+  const blob = await state.results.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'renamed_pdfs.zip';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+
+</body>
+</html>
