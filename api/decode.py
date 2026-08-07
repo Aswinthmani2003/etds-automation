@@ -1,26 +1,42 @@
 from flask import Flask, request, jsonify
 import fitz
 from PIL import Image
-import pytesseract
+import easyocr
 import re
 
 app = Flask(__name__)
+
+# Initialize OCR reader once
+reader = None
+
+def get_ocr_reader():
+    global reader
+    if reader is None:
+        try:
+            reader = easyocr.Reader(['en'], gpu=False)
+        except:
+            reader = None
+    return reader
 
 @app.route('/api/decode', methods=['POST'])
 def decode_pdf():
     try:
         if 'pdf' not in request.files:
-            return jsonify({'error': 'No PDF provided'}), 400
+            return jsonify({'success': False, 'barcode': None}), 200
 
         pdf_file = request.files['pdf']
         pdf_bytes = pdf_file.read()
 
         if not pdf_bytes:
-            return jsonify({'error': 'Empty PDF'}), 400
+            return jsonify({'success': False, 'barcode': None}), 200
 
         try:
             pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
-        except Exception as e:
+        except:
+            return jsonify({'success': False, 'barcode': None}), 200
+
+        ocr_reader = get_ocr_reader()
+        if ocr_reader is None:
             return jsonify({'success': False, 'barcode': None}), 200
 
         barcodes_found = []
@@ -35,17 +51,20 @@ def decode_pdf():
                     continue
 
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                img_array = __import__('numpy').array(img)
 
                 try:
-                    text = pytesseract.image_to_string(img)
-                    numbers = re.findall(r'\d+', text)
-                    for num in numbers:
-                        if len(num) >= 15:
-                            barcodes_found.append(num)
-                except Exception as ocr_error:
+                    results = ocr_reader.readtext(img_array)
+                    for detection in results:
+                        text = detection[1]
+                        numbers = re.findall(r'\d+', text)
+                        for num in numbers:
+                            if len(num) >= 15:
+                                barcodes_found.append(num)
+                except:
                     pass
 
-            except Exception as page_error:
+            except:
                 pass
 
         pdf.close()
@@ -55,5 +74,5 @@ def decode_pdf():
         else:
             return jsonify({'success': False, 'barcode': None})
 
-    except Exception as e:
+    except:
         return jsonify({'success': False, 'barcode': None}), 200

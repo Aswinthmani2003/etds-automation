@@ -3,5 +3,5 @@ flask-cors
 openpyxl
 Pillow
 PyMuPDF
-pytesseract
+easyocr
 python-multipart
