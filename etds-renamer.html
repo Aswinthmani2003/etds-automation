@@ -1,21 +1,21 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ETDS PDF Renamer — Amirtharaj Investment</title>
+<title>ETDS PDF Renamer  Amirtharaj Investment</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <script>
 /* Minimal, fast Code 128 decoder for clean scanned documents.
-   Scans horizontal and vertical lines in both directions (covers 0/90/180/270°),
+   Scans horizontal and vertical lines in both directions (covers 0/90/180/270),
    validates the mandatory checksum, so false positives are effectively impossible. */
 (function (global) {
   "use strict";
 
-  // Width patterns for symbol values 0..105 (6 elements, 11 modules each) — injected table
+  // Width patterns for symbol values 0..105 (6 elements, 11 modules each)  injected table
   const C128_PATTERNS = ["212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213", "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111", "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412", "211214", "211232"];
 
   var PATTERNS = C128_PATTERNS.map(function (s) { return s.split("").map(Number); });
@@ -194,7 +194,7 @@
 
 </script>
 <style>
-/* ── Design tokens ──────────────────────────────────── */
+/*  Design tokens  */
 :root {
   --bg:          #EDE6E6;
   --surface:     #F5EFEF;
@@ -226,7 +226,7 @@
   --r-xs:        6px;
 }
 
-/* ── Reset ──────────────────────────────────────────── */
+/*  Reset  */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -236,7 +236,7 @@ body {
   line-height: 1.5;
 }
 
-/* ── Navbar ─────────────────────────────────────────── */
+/*  Navbar  */
 .navbar {
   position: sticky;
   top: 0;
@@ -276,14 +276,14 @@ body {
   border-radius: 99px;
 }
 
-/* ── Main layout ────────────────────────────────────── */
+/*  Main layout  */
 .main {
   max-width: 1020px;
   margin: 0 auto;
   padding: 40px 28px 72px;
 }
 
-/* ── Page intro ─────────────────────────────────────── */
+/*  Page intro  */
 .page-intro { margin-bottom: 32px; }
 .page-intro h1 {
   font-size: 26px;
@@ -300,7 +300,7 @@ body {
   line-height: 1.65;
 }
 
-/* ── Upload grid ────────────────────────────────────── */
+/*  Upload grid  */
 .upload-grid {
   display: grid;
   grid-template-columns: 1fr 48px 1fr;
@@ -313,7 +313,7 @@ body {
   .upload-arrow { transform: rotate(90deg); margin: 0 auto; }
 }
 
-/* ── Upload card ────────────────────────────────────── */
+/*  Upload card  */
 .upload-card {
   background: var(--card);
   border-radius: var(--r);
@@ -344,7 +344,7 @@ body {
 }
 .upload-card-title { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }
 
-/* ── Drop zone ──────────────────────────────────────── */
+/*  Drop zone  */
 .drop {
   flex: 1;
   margin: 14px 16px 0;
@@ -413,7 +413,7 @@ body {
 .filemeta b { color: var(--green); font-weight: 600; }
 .filemeta-icon { font-size: 14px; }
 
-/* ── Arrow connector ────────────────────────────────── */
+/*  Arrow connector  */
 .upload-arrow {
   display: flex;
   align-items: center;
@@ -422,7 +422,7 @@ body {
 }
 .upload-arrow svg { width: 28px; height: 28px; }
 
-/* ── Actions ────────────────────────────────────────── */
+/*  Actions  */
 .actions {
   display: flex;
   gap: 12px;
@@ -501,7 +501,7 @@ body {
   transform: translateY(-1px);
 }
 
-/* ── Progress ───────────────────────────────────────── */
+/*  Progress  */
 .progress-wrap {
   background: var(--card);
   border-radius: var(--r-sm);
@@ -513,7 +513,7 @@ body {
 .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent-dark), var(--accent)); border-radius: 99px; transition: width .25s ease; }
 .progress-label { font-size: 13px; color: var(--text-2); margin-top: 10px; font-weight: 500; }
 
-/* ── Stat tiles ─────────────────────────────────────── */
+/*  Stat tiles  */
 .tiles {
   display: none;
   grid-template-columns: repeat(4, 1fr);
@@ -540,7 +540,7 @@ body {
 .tile.a .num { color: #D97706; }
 .tile .lbl  { font-size: 12.5px; color: var(--text-2); margin-top: 6px; font-weight: 500; }
 
-/* ── Results card ───────────────────────────────────── */
+/*  Results card  */
 .results-card {
   background: var(--card);
   border-radius: var(--r);
@@ -595,7 +595,7 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
 .chip.warn { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-bdr); }
 .reason { color: var(--text-3); font-size: 12px; margin-top: 4px; }
 
-/* ── Phase 2 card ────────────────────────────────────── */
+/*  Phase 2 card  */
 .phase2-card {
   background: var(--card); border-radius: var(--r);
   box-shadow: var(--sh); overflow: hidden; margin-bottom: 28px;
@@ -661,7 +661,7 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
   border-radius: var(--r-xs); padding: 10px 12px;
 }
 
-/* ── Footer note ────────────────────────────────────── */
+/*  Footer note  */
 .footer-note {
   font-size: 12.5px;
   color: var(--text-3);
@@ -671,13 +671,13 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
 }
 .footer-note b { color: var(--text-2); font-weight: 600; }
 
-/* ── Hidden inputs ──────────────────────────────────── */
+/*  Hidden inputs  */
 #excelInput, #zipInput { display: none; }
 </style>
 </head>
 <body>
 
-<!-- ── Navbar ──────────────────────────────────────── -->
+<!--  Navbar  -->
 <nav class="navbar">
   <div class="navbar-inner">
     <div class="nav-brand">
@@ -692,19 +692,19 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
   </div>
 </nav>
 
-<!-- ── Main ────────────────────────────────────────── -->
+<!--  Main  -->
 <main class="main">
 
   <div class="page-intro">
     <h1>Rename Scanned Receipts</h1>
     <p>Upload the ETDS Excel report and your batch of scanned acknowledgment PDFs.
-       Each barcode is decoded locally and matched to its receipt number — files never leave your device.</p>
+       Each barcode is decoded locally and matched to its receipt number  files never leave your device.</p>
   </div>
 
   <!-- Upload section -->
   <div class="upload-grid">
 
-    <!-- Step 1 — Excel -->
+    <!-- Step 1  Excel -->
     <div class="upload-card">
       <div class="upload-card-hd">
         <span class="step-chip">1</span>
@@ -742,7 +742,7 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
       </svg>
     </div>
 
-    <!-- Step 2 — PDFs -->
+    <!-- Step 2  PDFs -->
     <div class="upload-card">
       <div class="upload-card-hd">
         <span class="step-chip">2</span>
@@ -850,13 +850,13 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
     Nothing is uploaded to any server &mdash; all processing happens locally in this page.
   </p>
 
-  <!-- ── Phase 2: Upload to Steel City ──────────────────────── -->
+  <!--  Phase 2: Upload to Steel City  -->
   <div class="phase2-card">
     <div class="phase2-hd">
       <span class="phase2-badge">Phase 2</span>
       <div class="phase2-hd-text">
         <h3>Upload to Steel City Backoffice</h3>
-        <p>A bookmark that runs inside your browser — no software, no extensions.</p>
+        <p>A bookmark that runs inside your browser  no software, no extensions.</p>
       </div>
     </div>
     <div class="phase2-body">
@@ -864,7 +864,7 @@ td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font
       <div class="bm-step">
         <div class="bm-step-label">One-time setup</div>
         <h4>Drag to your bookmarks bar</h4>
-        <p>Drag the button below directly into your bookmarks bar. Done — nothing else to install.</p>
+        <p>Drag the button below directly into your bookmarks bar. Done  nothing else to install.</p>
         <div class="bm-drag-wrap">
           <a id="bmDragLink" class="bm-drag-link" href="#" title="Drag me to your bookmarks bar">
             <span class="bm-drag-grip"><i></i><i></i><i></i></span>
@@ -1141,7 +1141,7 @@ function csvCell(s) { return '"' + String(s).replace(/"/g, '""') + '"'; }
 
 $("processBtn").addEventListener("click", async () => {
   const btn = $("processBtn");
-  btn.disabled = true; btn.textContent = "Processing…";
+  btn.disabled = true; btn.textContent = "Processing";
   $("downloadBtn").style.display = "none";
   $("saveFolderBtn").style.display = "none";
   $("resultsBody").innerHTML = "";
@@ -1216,7 +1216,7 @@ $("processBtn").addEventListener("click", async () => {
 
     setProgress(99, "Building ZIP...");
     state.outputBlob = await outZip.generateAsync({ type: "blob" });
-    setProgress(100, "Done — " + matched + " renamed, " + unmatched + " unmatched" + (warnings ? ", " + warnings + " warning(s)" : "") + ".");
+    setProgress(100, "Done  " + matched + " renamed, " + unmatched + " unmatched" + (warnings ? ", " + warnings + " warning(s)" : "") + ".");
     $("downloadBtn").style.display = "inline-block";
     if (window.showDirectoryPicker) $("saveFolderBtn").style.display = "inline-flex";
   } catch (err) {
@@ -1254,7 +1254,7 @@ $("saveFolderBtn").addEventListener("click", async () => {
       setProgress(Math.round(saved / state.renamedEntries.length * 100),
         "Saving... " + saved + "/" + state.renamedEntries.length);
     }
-    setProgress(100, “Saved “ + saved + “ file(s) to folder - ready to upload to Steel City.”);
+    setProgress(100, Saved  + saved +  file(s) to folder - ready to upload to Steel City.);
   } catch (e) {
     if (e.name !== "AbortError") alert("Could not save to folder: " + e.message);
   }
@@ -1268,7 +1268,7 @@ $("downloadBtn").addEventListener("click", () => {
   }
 });
 
-/* ── Bookmarklet (DataTransfer + click — no fetch, no CSP issues) ── */
+/*  Bookmarklet (DataTransfer + click  no fetch, no CSP issues)  */
 const BOOKMARKLET_SRC = `
 const _D=window.top.document;
 if(_D.getElementById("_eb")){_D.getElementById("_eb").remove();const _s=_D.getElementById("_ebs");if(_s)_s.remove();return;}
