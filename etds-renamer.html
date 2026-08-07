@@ -1254,7 +1254,7 @@ $("saveFolderBtn").addEventListener("click", async () => {
       setProgress(Math.round(saved / state.renamedEntries.length * 100),
         "Saving… " + saved + "/" + state.renamedEntries.length);
     }
-    setProgress(100, “Saved “ + saved + “ file(s) to folder — ready to upload to Steel City.”);
+    setProgress(100, “Saved “ + saved + “ file(s) to folder - ready to upload to Steel City.”);
   } catch (e) {
     if (e.name !== "AbortError") alert("Could not save to folder: " + e.message);
   }
