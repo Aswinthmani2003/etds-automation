@@ -1,0 +1,11 @@
+{
+  "buildCommand": "",
+  "installCommand": "",
+  "framework": null,
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/etds-renamer.html"
+    }
+  ]
+}
