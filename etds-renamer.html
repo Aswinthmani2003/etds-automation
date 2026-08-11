@@ -1,0 +1,1160 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETDS PDF Renamer — Amirtharaj Investment</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<script>
+/* Minimal, fast Code 128 decoder for clean scanned documents.
+   Scans horizontal and vertical lines in both directions (covers 0/90/180/270°),
+   validates the mandatory checksum, so false positives are effectively impossible. */
+(function (global) {
+  "use strict";
+
+  // Width patterns for symbol values 0..105 (6 elements, 11 modules each) — injected table
+  const C128_PATTERNS = ["212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213", "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111", "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412", "211214", "211232"];
+
+  var PATTERNS = C128_PATTERNS.map(function (s) { return s.split("").map(Number); });
+  var STOP = [2, 3, 3, 1, 1, 1, 2]; // incl. termination bar, 13 modules
+
+  function matchVariance(runs, off, pattern, modules) {
+    var total = 0, i;
+    for (i = 0; i < pattern.length; i++) total += runs[off + i];
+    var unit = total / modules;
+    if (unit < 0.8) return Infinity; // sub-pixel bars: unreadable
+    var maxIndiv = unit * 0.72, sum = 0;
+    for (i = 0; i < pattern.length; i++) {
+      var v = Math.abs(runs[off + i] - pattern[i] * unit);
+      if (v > maxIndiv) return Infinity;
+      sum += v;
+    }
+    return sum / total;
+  }
+
+  function bestSymbol(runs, off) {
+    var best = -1, bestVar = 0.22; // max avg variance tolerated
+    for (var v = 0; v < PATTERNS.length; v++) {
+      var mv = matchVariance(runs, off, PATTERNS[v], 11);
+      if (mv < bestVar) { bestVar = mv; best = v; }
+    }
+    return best;
+  }
+
+  function valuesToText(values) {
+    // values: start .. data .. (checksum already stripped)
+    var set = { 103: "A", 104: "B", 105: "C" }[values[0]];
+    if (!set) return null;
+    var out = "", shift = null, i, v;
+    for (i = 1; i < values.length; i++) {
+      v = values[i];
+      var cur = shift || set;
+      shift = null;
+      if (cur === "C") {
+        if (v <= 99) out += (v < 10 ? "0" : "") + v;
+        else if (v === 100) set = "B";
+        else if (v === 101) set = "A";
+        // 102 = FNC1: ignore
+      } else { // A or B
+        if (v <= 94 && cur === "B") out += String.fromCharCode(32 + v);
+        else if (v <= 63 && cur === "A") out += String.fromCharCode(32 + v);
+        else if (v >= 64 && v <= 95 && cur === "A") out += String.fromCharCode(v - 64);
+        else if (v === 98) shift = cur === "A" ? "B" : "A";
+        else if (v === 99) set = "C";
+        else if (v === 100 && cur === "A") set = "B";
+        else if (v === 101 && cur === "B") set = "A";
+        // FNC codes: ignore
+      }
+    }
+    return out;
+  }
+
+  function decodeRuns(runs, nRuns) {
+    // runs alternate white/black; runs[0] is white (possibly length 0)
+    for (var i = 1; i + 6 < nRuns; i += 2) { // black runs at odd indices
+      // quiet zone: preceding white run reasonably wide
+      var startVal = -1, sv;
+      for (sv = 103; sv <= 105; sv++) {
+        if (matchVariance(runs, i, PATTERNS[sv], 11) < 0.22) { startVal = sv; break; }
+      }
+      if (startVal < 0) continue;
+      var unit = (runs[i] + runs[i + 1] + runs[i + 2] + runs[i + 3] + runs[i + 4] + runs[i + 5]) / 11;
+      if (runs[i - 1] < unit * 5) continue; // need ~10-module quiet zone (be lenient: 5)
+
+      var values = [startVal], j = i + 6, ok = false;
+      while (j + 6 < nRuns + 1) {
+        // stop pattern? (7 runs)
+        if (j + 7 <= nRuns && matchVariance(runs, j, STOP, 13) < 0.22) { ok = true; break; }
+        if (j + 6 > nRuns) break;
+        var sym = bestSymbol(runs, j);
+        if (sym < 0) break;
+        values.push(sym);
+        j += 6;
+        if (values.length > 60) break;
+      }
+      if (!ok || values.length < 3) continue;
+      // checksum: last data value is the check digit
+      var check = values.pop();
+      var sum = values[0];
+      for (var k = 1; k < values.length; k++) sum += k * values[k];
+      if (sum % 103 !== check) continue;
+      var text = valuesToText(values);
+      if (text) return text;
+    }
+    return null;
+  }
+
+  function decodeLine(px, len) {
+    // px: float luma values for one line (possibly vertically averaged).
+    // Sub-pixel run measurement: find threshold crossings with linear
+    // interpolation, so bar widths are accurate even at ~1.5px modules.
+    var mn = 255, mx = 0, i;
+    for (i = 0; i < len; i++) { var p = px[i]; if (p < mn) mn = p; if (p > mx) mx = p; }
+    if (mx - mn < 50) return null;
+    var thr = (mn + mx) / 2;
+
+    var runs = decodeLine._runs || (decodeLine._runs = new Float32Array(8192));
+    var nRuns = 0;
+    var prevDiff = px[0] - thr;        // >0 white, <0 black
+    var lastCross = 0;
+    for (i = 1; i < len; i++) {
+      var diff = px[i] - thr;
+      if ((diff < 0) !== (prevDiff < 0)) {
+        var t = i - 1 + Math.abs(prevDiff) / (Math.abs(prevDiff) + Math.abs(diff));
+        if (nRuns >= 8190) return null;
+        runs[nRuns++] = t - lastCross;
+        lastCross = t;
+      }
+      prevDiff = diff;
+    }
+    runs[nRuns++] = len - lastCross;
+    // decodeRuns expects runs[0] = leading WHITE run. If the line starts black,
+    // prepend a zero-length white run.
+    if (px[0] - thr < 0) {
+      for (i = nRuns; i > 0; i--) runs[i] = runs[i - 1];
+      runs[0] = 0; nRuns++;
+    }
+    if (nRuns < 15) return null;
+    return decodeRuns(runs, nRuns);
+  }
+
+  /* luma: Uint8Array (grayscale), w x h. step: scan every Nth line.
+     Each scanline averages 3 adjacent rows/cols to suppress scan/JPEG noise. */
+  function decodeCode128(luma, w, h, step) {
+    step = step || 3;
+    var maxLen = Math.max(w, h);
+    var line = new Float32Array(maxLen);
+    var rev = new Float32Array(maxLen);
+    var x, y, res;
+
+    for (y = 0; y < h; y += step) {                   // horizontal lines
+      var y0 = y > 0 ? y - 1 : y, y2 = y < h - 1 ? y + 1 : y;
+      var o0 = y0 * w, o1 = y * w, o2 = y2 * w;
+      for (x = 0; x < w; x++) line[x] = (luma[o0 + x] + luma[o1 + x] + luma[o2 + x]) / 3;
+      if ((res = decodeLine(line, w))) return res;
+      for (x = 0; x < w; x++) rev[x] = line[w - 1 - x];
+      if ((res = decodeLine(rev, w))) return res;
+    }
+    for (x = 0; x < w; x += step) {                   // vertical lines
+      var x0 = x > 0 ? x - 1 : x, x2 = x < w - 1 ? x + 1 : x;
+      for (y = 0; y < h; y++) {
+        var o = y * w;
+        line[y] = (luma[o + x0] + luma[o + x] + luma[o + x2]) / 3;
+      }
+      if ((res = decodeLine(line, h))) return res;
+      for (y = 0; y < h; y++) rev[y] = line[h - 1 - y];
+      if ((res = decodeLine(rev, h))) return res;
+    }
+    return null;
+  }
+
+  function lumaFromCanvas(canvas) {
+    var ctx = canvas.getContext("2d");
+    var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var d = img.data, n = canvas.width * canvas.height;
+    var luma = new Uint8Array(n);
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      luma[i] = (d[o] * 77 + d[o + 1] * 151 + d[o + 2] * 28) >> 8;
+    }
+    return luma;
+  }
+
+  global.Code128Reader = {
+    decodeCanvas: function (canvas, step) {
+      return decodeCode128(lumaFromCanvas(canvas), canvas.width, canvas.height, step);
+    },
+    decodeLuma: decodeCode128
+  };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+</script>
+<style>
+/* ── Design tokens ──────────────────────────────────── */
+:root {
+  --bg:          #EDE6E6;
+  --surface:     #F5EFEF;
+  --card:        #FFFFFF;
+  --border:      #E2D4D4;
+  --border-med:  #D0BFBF;
+  --text:        #18100F;
+  --text-2:      #6B6070;
+  --text-3:      #A09098;
+  --accent:      #E04B3E;
+  --accent-dark: #C73A2E;
+  --accent-soft: #FEF0EE;
+  --accent-bdr:  #F4C0BB;
+  --green:       #0E7A57;
+  --green-soft:  #E4F5EE;
+  --green-bdr:   #A7D9C5;
+  --amber:       #8A3C0A;
+  --amber-soft:  #FEF3C7;
+  --amber-bdr:   #F3D07A;
+  --red:         #B42318;
+  --red-soft:    #FEECEC;
+  --red-bdr:     #F5B8B3;
+  --sh-xs:       0 1px 3px rgba(0,0,0,.06);
+  --sh-sm:       0 2px 8px rgba(0,0,0,.07), 0 0 0 1px rgba(0,0,0,.03);
+  --sh:          0 4px 20px rgba(0,0,0,.08), 0 1px 4px rgba(0,0,0,.04);
+  --sh-lg:       0 8px 40px rgba(0,0,0,.10), 0 2px 8px rgba(0,0,0,.05);
+  --r:           16px;
+  --r-sm:        10px;
+  --r-xs:        6px;
+}
+
+/* ── Reset ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* ── Navbar ─────────────────────────────────────────── */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--sh-xs);
+}
+.navbar-inner {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 0 28px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-brand { display: flex; align-items: center; gap: 16px; }
+.nav-brand img { height: 40px; width: auto; display: block; }
+.nav-sep { width: 1px; height: 30px; background: var(--border-med); flex-shrink: 0; }
+.nav-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-tool-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); line-height: 1.2; }
+.nav-tool-sub  { font-size: 11px; color: var(--text-3); font-weight: 500; letter-spacing: 0.01em; }
+.nav-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-bdr);
+  padding: 4px 12px;
+  border-radius: 99px;
+}
+
+/* ── Main layout ────────────────────────────────────── */
+.main {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 40px 28px 72px;
+}
+
+/* ── Page intro ─────────────────────────────────────── */
+.page-intro { margin-bottom: 32px; }
+.page-intro h1 {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--text);
+}
+.page-intro p {
+  color: var(--text-2);
+  font-size: 14.5px;
+  margin-top: 8px;
+  max-width: 600px;
+  line-height: 1.65;
+}
+
+/* ── Upload grid ────────────────────────────────────── */
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 48px 1fr;
+  align-items: stretch;
+  gap: 0 12px;
+  margin-bottom: 28px;
+}
+@media (max-width: 680px) {
+  .upload-grid { grid-template-columns: 1fr; gap: 12px 0; }
+  .upload-arrow { transform: rotate(90deg); margin: 0 auto; }
+}
+
+/* ── Upload card ────────────────────────────────────── */
+.upload-card {
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow .2s;
+}
+.upload-card:hover { box-shadow: var(--sh-lg); }
+
+.upload-card-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 0;
+}
+.step-chip {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(224,75,62,.35);
+}
+.upload-card-title { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* ── Drop zone ──────────────────────────────────────── */
+.drop {
+  flex: 1;
+  margin: 14px 16px 0;
+  border: 2px dashed var(--border-med);
+  border-radius: var(--r-sm);
+  padding: 30px 20px;
+  cursor: pointer;
+  transition: border-color .18s, background .18s, transform .12s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  min-height: 200px;
+  user-select: none;
+}
+.drop:hover, .drop.drag {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-2px);
+}
+.drop.loaded {
+  border-style: solid;
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.drop-icon-wrap {
+  width: 64px; height: 64px;
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px;
+  transition: background .18s, transform .12s;
+  flex-shrink: 0;
+}
+.drop-icon-xl  { background: #E8F5E9; }
+.drop-icon-pdf { background: var(--accent-soft); }
+.drop:hover .drop-icon-wrap,
+.drop.drag .drop-icon-wrap { transform: scale(1.08); }
+.drop.loaded .drop-icon-wrap { background: #C8EEE0; }
+
+.drop-main { font-size: 15.5px; font-weight: 700; color: var(--text); }
+.fmt-row   { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.fmt-chip  {
+  font-size: 11.5px; font-weight: 600;
+  padding: 2px 8px; border-radius: 5px;
+  background: var(--surface); color: var(--text-2);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+.drop-hint { font-size: 12.5px; color: var(--text-3); }
+
+/* File meta strip */
+.filemeta {
+  padding: 10px 20px 16px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-height: 36px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filemeta b { color: var(--green); font-weight: 600; }
+.filemeta-icon { font-size: 14px; }
+
+/* ── Arrow connector ────────────────────────────────── */
+.upload-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--border-med);
+}
+.upload-arrow svg { width: 28px; height: 28px; }
+
+/* ── Actions ────────────────────────────────────────── */
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-process {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 34px;
+  font-size: 15.5px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  box-shadow: 0 2px 10px rgba(224,75,62,.38), 0 1px 3px rgba(0,0,0,.12);
+  transition: background .15s, box-shadow .15s, transform .1s;
+}
+.btn-process:hover:not(:disabled) {
+  background: var(--accent-dark);
+  box-shadow: 0 4px 18px rgba(224,75,62,.44), 0 1px 4px rgba(0,0,0,.12);
+  transform: translateY(-1px);
+}
+.btn-process:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 4px rgba(224,75,62,.3); }
+.btn-process:disabled {
+  background: var(--border);
+  color: var(--text-3);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--card);
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  padding: 13px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background .15s, transform .1s, box-shadow .15s;
+}
+.btn-download:hover {
+  background: var(--accent-soft);
+  box-shadow: 0 2px 8px rgba(224,75,62,.18);
+  transform: translateY(-1px);
+}
+
+.btn-save-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--card);
+  color: var(--green);
+  border: 1.5px solid var(--green);
+  border-radius: 12px;
+  padding: 13px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background .15s, transform .1s;
+}
+.btn-save-folder:hover {
+  background: var(--green-soft);
+  transform: translateY(-1px);
+}
+
+/* ── Progress ───────────────────────────────────────── */
+.progress-wrap {
+  background: var(--card);
+  border-radius: var(--r-sm);
+  padding: 20px 22px;
+  margin-bottom: 24px;
+  box-shadow: var(--sh-sm);
+}
+.progress-bar  { height: 7px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent-dark), var(--accent)); border-radius: 99px; transition: width .25s ease; }
+.progress-label { font-size: 13px; color: var(--text-2); margin-top: 10px; font-weight: 500; }
+
+/* ── Stat tiles ─────────────────────────────────────── */
+.tiles {
+  display: none;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 28px;
+}
+@media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+
+.tile {
+  background: var(--card);
+  border-radius: var(--r-sm);
+  padding: 20px 22px;
+  box-shadow: var(--sh-sm);
+  border-top: 3px solid var(--border);
+  position: relative;
+}
+.tile.g { border-top-color: var(--green); }
+.tile.r { border-top-color: var(--red); }
+.tile.a { border-top-color: #D97706; }
+
+.tile .num { font-size: 32px; font-weight: 800; letter-spacing: -0.03em; color: var(--text); line-height: 1; }
+.tile.g .num { color: var(--green); }
+.tile.r .num { color: var(--red); }
+.tile.a .num { color: #D97706; }
+.tile .lbl  { font-size: 12.5px; color: var(--text-2); margin-top: 6px; font-weight: 500; }
+
+/* ── Results card ───────────────────────────────────── */
+.results-card {
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  overflow: hidden;
+  display: none;
+  margin-bottom: 28px;
+}
+.results-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.results-head h2 { font-size: 15px; font-weight: 700; }
+.results-note   { font-size: 12.5px; color: var(--text-2); }
+
+.tbl-wrap { max-height: 500px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th {
+  text-align: left;
+  padding: 11px 20px;
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 12px 20px; border-top: 1px solid var(--border); vertical-align: middle; }
+tbody tr:hover td { background: var(--surface); }
+td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: var(--text-2); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 11px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.chip.ok   { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-bdr); }
+.chip.bad  { background: var(--red-soft);   color: var(--red);   border: 1px solid var(--red-bdr);   }
+.chip.warn { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-bdr); }
+.reason { color: var(--text-3); font-size: 12px; margin-top: 4px; }
+
+/* ── Browse button ──────────────────────────────────── */
+.browse-btn {
+  display: block; width: calc(100% - 32px); margin: 8px 16px 14px;
+  padding: 9px 0; background: var(--accent); color: #fff;
+  border: none; border-radius: var(--r-sm); font-size: 13.5px;
+  font-weight: 700; font-family: inherit; cursor: pointer;
+  transition: background .15s;
+}
+.browse-btn:hover { background: var(--accent-dark); }
+
+/* ── Footer note ────────────────────────────────────── */
+.footer-note {
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.7;
+  text-align: center;
+  padding-top: 4px;
+}
+.footer-note b { color: var(--text-2); font-weight: 600; }
+
+/* ── Hidden inputs ──────────────────────────────────── */
+#excelInput, #zipInput { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="navbar-inner">
+    <div class="nav-brand">
+      <img src="logo.png" alt="Amirtharaj Investment">
+      <div class="nav-sep"></div>
+      <div class="nav-tool">
+        <span class="nav-tool-name">ETDS PDF Renamer</span>
+        <span class="nav-tool-sub">Acknowledgment Receipt Automation</span>
+      </div>
+    </div>
+    <span class="nav-badge">Internal Tool</span>
+  </div>
+</nav>
+
+<!-- ── Main ────────────────────────────────────────── -->
+<main class="main">
+
+  <div class="page-intro">
+    <h1>Rename Scanned Receipts</h1>
+    <p>Upload the ETDS Excel report and your batch of scanned acknowledgment PDFs.
+       Each barcode is decoded locally and matched to its receipt number — files never leave your device.</p>
+  </div>
+
+  <!-- Upload section -->
+  <div class="upload-grid">
+
+    <!-- Step 1 — Excel -->
+    <div class="upload-card">
+      <div class="upload-card-hd">
+        <span class="step-chip">1</span>
+        <span class="upload-card-title">ETDS Report (Excel)</span>
+      </div>
+      <label class="drop" id="excelDrop" for="excelInput">
+        <div class="drop-icon-wrap drop-icon-xl">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <rect x="3" y="2" width="20" height="28" rx="3" fill="#fff" stroke="#43A047" stroke-width="1.6"/>
+            <path d="M17 2v8h9" stroke="#43A047" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="17" y="2" width="9" height="8" rx="1" fill="#C8E6C9" stroke="#43A047" stroke-width="1.6"/>
+            <path d="M8 18l3 5 3-5" stroke="#43A047" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 18v5" stroke="#43A047" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M19 18h5M19 21.5h4M19 25h5" stroke="#43A047" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="drop-main">Excel Report</div>
+          <div class="fmt-row" style="margin-top:8px">
+            <span class="fmt-chip">.xls</span>
+            <span class="fmt-chip">.xlsx</span>
+            <span class="fmt-chip">.csv</span>
+          </div>
+          <div class="drop-hint" style="margin-top:8px">Click to browse or drag &amp; drop</div>
+        </div>
+      </label>
+      <div class="filemeta" id="excelMeta"></div>
+      <input type="file" id="excelInput">
+      <button type="button" class="browse-btn" onclick="document.getElementById('excelInput').click()">Browse Excel File</button>
+    </div>
+
+    <!-- Arrow -->
+    <div class="upload-arrow">
+      <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 14h16M16 8l6 6-6 6"/>
+      </svg>
+    </div>
+
+    <!-- Step 2 — PDFs -->
+    <div class="upload-card">
+      <div class="upload-card-hd">
+        <span class="step-chip">2</span>
+        <span class="upload-card-title">Scanned PDFs</span>
+      </div>
+      <label class="drop" id="zipDrop" for="zipInput">
+        <div class="drop-icon-wrap drop-icon-pdf">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <rect x="3" y="2" width="20" height="28" rx="3" fill="#fff" stroke="#E04B3E" stroke-width="1.6"/>
+            <path d="M17 2v8h9" stroke="#E04B3E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="17" y="2" width="9" height="8" rx="1" fill="#FED7D4" stroke="#E04B3E" stroke-width="1.6"/>
+            <path d="M8 17h2.5a2 2 0 010 4H8v4" stroke="#E04B3E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19 17v8M19 17h2a2.5 2.5 0 010 5h-2" stroke="#E04B3E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M25 17h-.5A2.5 2.5 0 0022 19.5v3A2.5 2.5 0 0024.5 25H25" stroke="#E04B3E" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="drop-main">PDFs or ZIP Archive</div>
+          <div class="fmt-row" style="margin-top:8px">
+            <span class="fmt-chip">.zip</span>
+            <span class="fmt-chip">.pdf</span>
+          </div>
+          <div class="drop-hint" style="margin-top:8px">Click, multi-select, or drag &amp; drop</div>
+        </div>
+      </label>
+      <div class="filemeta" id="zipMeta"></div>
+      <input type="file" id="zipInput" multiple>
+      <button type="button" class="browse-btn" onclick="document.getElementById('zipInput').click()">Browse PDF / ZIP</button>
+    </div>
+
+  </div><!-- /upload-grid -->
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn-process" id="processBtn" disabled>
+      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="4,2 14,8.5 4,15" fill="white" stroke="white"/>
+      </svg>
+      Process &amp; Rename
+    </button>
+    <button class="btn-download" id="downloadBtn" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 2v8M5 7l3 3 3-3M2 12h12"/>
+      </svg>
+      Download Renamed ZIP
+    </button>
+    <button class="btn-save-folder" id="saveFolderBtn" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 13V5l3-3h7a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1z"/>
+        <path d="M5 2v3h6V2M5 9h6"/>
+      </svg>
+      Save to Folder
+    </button>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-label" id="progressLabel"></div>
+  </div>
+
+  <!-- Stat tiles -->
+  <div class="tiles" id="tiles">
+    <div class="tile">
+      <div class="num" id="tTotal">0</div>
+      <div class="lbl">PDFs processed</div>
+    </div>
+    <div class="tile g">
+      <div class="num" id="tMatched">0</div>
+      <div class="lbl">Matched &amp; renamed</div>
+    </div>
+    <div class="tile r">
+      <div class="num" id="tUnmatched">0</div>
+      <div class="lbl">Unmatched</div>
+    </div>
+    <div class="tile a">
+      <div class="num" id="tWarn">0</div>
+      <div class="lbl">Warnings</div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="results-card" id="resultsCard">
+    <div class="results-head">
+      <h2>Results</h2>
+      <span class="results-note" id="excelSummary"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Original file</th>
+            <th>Token (barcode)</th>
+            <th>New name</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="footer-note">
+    The output ZIP contains renamed PDFs at the root and any unmatched PDFs in an
+    <b>unmatched/</b> folder (original names kept).
+    Nothing is uploaded to any server &mdash; all processing happens locally in this page.
+  </p>
+
+
+
+</main>
+
+<script>
+"use strict";
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+const state = { excelFile: null, pdfFiles: [], tokenMap: null, outputBlob: null, renamedEntries: [] };
+const $ = id => document.getElementById(id);
+
+/* ---------- upload wiring ---------- */
+function wireDrop(dropId, inputId, onFiles) {
+  const drop = $(dropId), input = $(inputId);
+  input.addEventListener("change", () => { if (input.files.length) onFiles([...input.files]); input.value = ""; });
+  ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
+  drop.addEventListener("drop", e => { if (e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]); });
+}
+
+wireDrop("excelDrop", "excelInput", files => {
+  state.excelFile = files[0];
+  $("excelDrop").classList.add("loaded");
+  $("excelMeta").innerHTML = "&#10003;&nbsp;<b>" + esc(state.excelFile.name) + "</b>";
+  refreshReady();
+});
+
+wireDrop("zipDrop", "zipInput", files => {
+  state.pdfFiles = files;
+  $("zipDrop").classList.add("loaded");
+  const label = files.length === 1 ? files[0].name : files.length + " files selected";
+  $("zipMeta").innerHTML = "&#10003;&nbsp;<b>" + esc(label) + "</b>";
+  refreshReady();
+});
+
+function refreshReady() { $("processBtn").disabled = !(state.excelFile && state.pdfFiles.length); }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
+
+/* ---------- Excel parsing ---------- */
+function digitsOf(cellText) { return String(cellText == null ? "" : cellText).replace(/[^0-9]/g, ""); }
+
+async function parseExcel(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const map = new Map();            // token(20) -> { target(15), sheet, row }
+  const dupTokens = new Set();
+  let rowsScanned = 0, sci = 0;
+
+  for (const name of wb.SheetNames) {
+    const sheet = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+    if (!rows.length) continue;
+
+    // Detect token column (most 20-digit cells) and target column (most 15-digit cells)
+    const colStats = {};
+    rows.forEach(r => r.forEach((cell, c) => {
+      const d = digitsOf(cell);
+      if (!colStats[c]) colStats[c] = { t20: 0, t15: 0 };
+      if (d.length === 20) colStats[c].t20++;
+      if (d.length === 15) colStats[c].t15++;
+      if (/[0-9](\.[0-9]+)?E\+1[0-9]/i.test(String(cell))) sci++;
+    }));
+    const cols = Object.keys(colStats).map(Number).sort((a, b) => a - b);
+    let tokenCol = -1, targetCol = -1, best20 = 0, best15 = 0;
+    cols.forEach(c => { if (colStats[c].t20 > best20) { best20 = colStats[c].t20; tokenCol = c; } });
+    cols.forEach(c => { if (c !== tokenCol && colStats[c].t15 > best15) { best15 = colStats[c].t15; targetCol = c; } });
+
+    rows.forEach((r, ri) => {
+      let token = "", target = "";
+      if (tokenCol >= 0) token = digitsOf(r[tokenCol]);
+      if (token.length !== 20) { // per-row fallback: any 20-digit cell
+        token = "";
+        for (const cell of r) { const d = digitsOf(cell); if (d.length === 20) { token = d; break; } }
+      }
+      if (!token) return;
+      rowsScanned++;
+      if (targetCol >= 0) target = digitsOf(r[targetCol]);
+      if (target.length !== 15) { // per-row fallback: leftmost 15-digit cell
+        target = "";
+        for (const cell of r) { const d = digitsOf(cell); if (d.length === 15) { target = d; break; } }
+      }
+      if (!target) return;
+      if (map.has(token)) { dupTokens.add(token); return; }
+      map.set(token, { target, sheet: name, row: ri + 1 });
+    });
+  }
+  return { map, dupTokens, rowsScanned, sci };
+}
+
+/* ---------- PDF -> barcode ----------
+   Strategy: scanned PDFs embed the scan as an image. Decoding that image at its
+   NATIVE resolution avoids resampling blur, so we extract embedded images first
+   and only fall back to rendering the whole page. */
+
+function lumaFromRaw(data, w, h) {
+  const n = w * h;
+  let luma;
+  if (data.length === n) return data;
+  if (data.length === Math.ceil(w / 8) * h) {       // 1-bit packed
+    luma = new Uint8Array(n);
+    const stride = Math.ceil(w / 8);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      luma[y * w + x] = ((data[y * stride + (x >> 3)] >> (7 - (x & 7))) & 1) ? 255 : 0;
+    }
+    return luma;
+  }
+  if (data.length === 3 * n || data.length === 4 * n) {
+    const bpp = data.length / n;
+    luma = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const o = i * bpp;
+      luma[i] = (data[o] * 77 + data[o + 1] * 151 + data[o + 2] * 28) >> 8;
+    }
+    return luma;
+  }
+  return null;
+}
+
+function getPdfObj(page, name) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = o => { if (!done) { done = true; clearTimeout(timer); resolve(o); } };
+    const timer = setTimeout(() => finish(null), 8000);
+    try { (name.startsWith("g_") ? page.commonObjs : page.objs).get(name, finish); }
+    catch (e) {
+      try { page.commonObjs.get(name, finish); } catch (e2) { finish(null); }
+    }
+  });
+}
+
+async function decodePageImages(page) {
+  let ops;
+  try { ops = await page.getOperatorList(); } catch (e) { return null; }
+  const names = [];
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    if (ops.fnArray[i] === pdfjsLib.OPS.paintImageXObject) {
+      const n = ops.argsArray[i][0];
+      if (n && !names.includes(n)) names.push(n);
+    }
+  }
+  for (const name of names) {
+    const img = await getPdfObj(page, name);
+    if (!img || !img.width || img.width < 100 || img.height < 100) continue;
+    for (const step of [3, 1]) {
+      let code = null;
+      if (img.data) {
+        const luma = lumaFromRaw(img.data, img.width, img.height);
+        if (luma) code = Code128Reader.decodeLuma(luma, img.width, img.height, step);
+      } else if (img.bitmap) {
+        const c = document.createElement("canvas");
+        c.width = img.width; c.height = img.height;
+        c.getContext("2d", { willReadFrequently: true }).drawImage(img.bitmap, 0, 0);
+        code = Code128Reader.decodeCanvas(c, step);
+      }
+      if (code) {
+        const digits = digitsOf(code);
+        if (digits.length >= 15) return digits;
+      }
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  return null;
+}
+
+async function decodePageRender(page) {
+  const vp1 = page.getViewport({ scale: 1 });
+  for (const target of [4200, 3000, 2000]) {
+    const scale = target / Math.max(vp1.width, vp1.height);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(vp.width);
+    canvas.height = Math.round(vp.height);
+    await page.render({ canvasContext: canvas.getContext("2d", { willReadFrequently: true }), viewport: vp }).promise;
+    const code = Code128Reader.decodeCanvas(canvas, 3);
+    if (code) {
+      const digits = digitsOf(code);
+      if (digits.length >= 15) return digits;
+    }
+    await new Promise(r => setTimeout(r, 0));
+  }
+  return null;
+}
+
+async function extractToken(pdfBytes) {
+  let doc;
+  try {
+    doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+  } catch (e) { return { token: null, error: "Could not open PDF (" + e.message + ")" }; }
+  try {
+    const pagesToTry = Math.min(doc.numPages, 3);
+    for (let p = 1; p <= pagesToTry; p++) {
+      const page = await doc.getPage(p);
+      let token = await decodePageImages(page);   // native-resolution path
+      if (!token) token = await decodePageRender(page); // fallback: rendered page
+      if (token) return { token, page: p };
+    }
+    return { token: null, error: "No barcode could be read" };
+  } catch (e) {
+    return { token: null, error: "Error reading PDF (" + e.message + ")" };
+  } finally { try { doc.destroy(); } catch (e) {} }
+}
+
+/* ---------- main pipeline ---------- */
+async function collectPdfEntries() {
+  // Returns [{ name, bytes }]
+  const entries = [];
+  for (const f of state.pdfFiles) {
+    if (/\.zip$/i.test(f.name)) {
+      const zip = await JSZip.loadAsync(await f.arrayBuffer());
+      const names = Object.keys(zip.files).filter(n => !zip.files[n].dir && /\.pdf$/i.test(n) && !n.startsWith("__MACOSX"));
+      names.sort();
+      for (const n of names) entries.push({ name: n.split("/").pop(), bytes: await zip.files[n].async("uint8array") });
+    } else if (/\.pdf$/i.test(f.name)) {
+      entries.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+    }
+  }
+  return entries;
+}
+
+function setProgress(pct, label) {
+  $("progressWrap").style.display = "block";
+  $("progressFill").style.width = pct + "%";
+  $("progressLabel").textContent = label;
+}
+
+function csvCell(s) { return '"' + String(s).replace(/"/g, '""') + '"'; }
+
+$("processBtn").addEventListener("click", async () => {
+  const btn = $("processBtn");
+  btn.disabled = true; btn.textContent = "Processing…";
+  $("downloadBtn").style.display = "none";
+  $("saveFolderBtn").style.display = "none";
+  $("resultsBody").innerHTML = "";
+  $("tiles").style.display = "none";
+  $("resultsCard").style.display = "none";
+  state.outputBlob = null;
+  state.renamedEntries = [];
+
+  try {
+    setProgress(0, "Reading Excel…");
+    const excel = await parseExcel(state.excelFile);
+    state.tokenMap = excel.map;
+    let excelNote = excel.map.size + " token rows loaded from Excel";
+    if (excel.dupTokens.size) excelNote += " Â· " + excel.dupTokens.size + " duplicate token(s) in Excel (first occurrence used)";
+    $("excelSummary").textContent = excelNote;
+    if (excel.sci > 0 && excel.map.size === 0) {
+      alert("The Excel seems to store token numbers in scientific notation (e.g. 2.6E+19), so exact 20-digit tokens cannot be recovered. Please re-export the report with token numbers as text.");
+    }
+    if (excel.map.size === 0) throw new Error("No rows with a 20-digit token and 15-digit receipt number were found in the Excel.");
+
+    setProgress(2, "Reading PDFs…");
+    const entries = await collectPdfEntries();
+    if (!entries.length) throw new Error("No PDF files found in the upload.");
+
+    const outZip = new JSZip();
+    const usedNames = new Map();   // target -> count (collision handling)
+    const results = [];
+    let matched = 0, unmatched = 0, warnings = 0;
+
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      setProgress(2 + Math.round(96 * i / entries.length), "Reading barcode: " + e.name + " (" + (i + 1) + "/" + entries.length + ")");
+      // Yield to UI
+      await new Promise(r => setTimeout(r, 0));
+
+      const res = await extractToken(e.bytes.slice());
+      let row = { original: e.name, token: res.token || "", newName: "", status: "", reason: "" };
+
+      if (!res.token) {
+        row.status = "unmatched"; row.reason = res.error || "No barcode found";
+        outZip.file("unmatched/" + e.name, e.bytes);
+        unmatched++;
+      } else {
+        const hit = state.tokenMap.get(res.token);
+        if (!hit) {
+          row.status = "unmatched";
+          row.reason = "Token not found in Excel";
+          outZip.file("unmatched/" + e.name, e.bytes);
+          unmatched++;
+        } else {
+          const n = (usedNames.get(hit.target) || 0) + 1;
+          usedNames.set(hit.target, n);
+          const finalName = n === 1 ? hit.target + ".pdf" : hit.target + " (" + n + ").pdf";
+          row.newName = finalName;
+          if (n > 1) { row.status = "duplicate"; row.reason = "Another PDF already matched this token/receipt"; warnings++; }
+          else { row.status = "matched"; }
+          if (res.page && res.page > 1) { row.reason = (row.reason ? row.reason + " Â· " : "") + "Barcode found on page " + res.page; }
+          outZip.file(finalName, e.bytes);
+          state.renamedEntries.push({ name: finalName, bytes: e.bytes });
+          matched++;
+        }
+      }
+      results.push(row);
+      appendResultRow(row);
+      $("tiles").style.display = "grid";
+      $("resultsCard").style.display = "block";
+      $("tTotal").textContent = i + 1;
+      $("tMatched").textContent = matched;
+      $("tUnmatched").textContent = unmatched;
+      $("tWarn").textContent = warnings;
+    }
+
+    setProgress(99, "Building ZIP…");
+    state.outputBlob = await outZip.generateAsync({ type: "blob" });
+    setProgress(100, "Done — " + matched + " renamed, " + unmatched + " unmatched" + (warnings ? ", " + warnings + " warning(s)" : "") + ".");
+    $("downloadBtn").style.display = "inline-block";
+    if (window.showDirectoryPicker) $("saveFolderBtn").style.display = "inline-flex";
+  } catch (err) {
+    setProgress(100, "Error: " + err.message);
+    alert("Error: " + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Process & Rename";
+  }
+});
+
+function appendResultRow(r) {
+  const tr = document.createElement("tr");
+  const chip = r.status === "matched" ? '<span class="chip ok">Matched</span>'
+    : r.status === "duplicate" ? '<span class="chip warn">Duplicate</span>'
+    : '<span class="chip bad">Unmatched</span>';
+  tr.innerHTML =
+    "<td>" + esc(r.original) + "</td>" +
+    '<td class="mono">' + esc(r.token || "—") + "</td>" +
+    '<td class="mono">' + esc(r.newName || "—") + "</td>" +
+    "<td>" + chip + (r.reason ? '<div class="reason">' + esc(r.reason) + "</div>" : "") + "</td>";
+  $("resultsBody").appendChild(tr);
+}
+
+$("saveFolderBtn").addEventListener("click", async () => {
+  if (!state.renamedEntries.length) return;
+  try {
+    const dir = await window.showDirectoryPicker({ mode: "readwrite", startIn: "downloads" });
+    let saved = 0;
+    for (const { name, bytes } of state.renamedEntries) {
+      const fh = await dir.getFileHandle(name, { create: true });
+      const wr = await fh.createWritable();
+      await wr.write(bytes);
+      await wr.close();
+      saved++;
+      setProgress(Math.round(saved / state.renamedEntries.length * 100),
+        "Saving… " + saved + "/" + state.renamedEntries.length);
+    }
+    setProgress(100, “Saved “ + saved + “ file(s) to folder — ready to upload to Steel City.”);
+  } catch (e) {
+    if (e.name !== "AbortError") alert("Could not save to folder: " + e.message);
+  }
+});
+
+$("downloadBtn").addEventListener("click", () => {
+  if (state.outputBlob) {
+    const d = new Date();
+    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+    saveAs(state.outputBlob, "renamed_etds_" + stamp + ".zip");
+  }
+});
+
+</script>
+</body>
+</html>
