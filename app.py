@@ -1003,7 +1003,12 @@ $('newBatchBtn').addEventListener('click', resetAll);
 
 
 if __name__ == "__main__":
+    import os
     import socket
+
+    # Use PORT environment variable (set by Render), default to 5000 for local
+    port = int(os.environ.get("PORT", 5000))
+
     try:
         host_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
@@ -1012,9 +1017,9 @@ if __name__ == "__main__":
     print()
     print("  ETDS PDF Renamer — Web Dashboard")
     print("  ===================================")
-    print(f"  Local:  http://localhost:5000")
-    print(f"  Team:   http://{host_ip}:5000")
+    print(f"  Local:  http://localhost:{port}")
+    print(f"  Team:   http://{host_ip}:{port}")
     print()
     print("  Press Ctrl+C to stop the server.")
     print()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)

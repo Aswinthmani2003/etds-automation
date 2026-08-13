@@ -5,3 +5,12 @@ __pycache__/
 .venv/
 venv/
 *.log
+*.pdf
+*.xlsx
+*.xls
+*.csv
+uploads/
+temp/
+.DS_Store
+dist/
+build/

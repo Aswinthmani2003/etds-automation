@@ -1,0 +1,108 @@
+================================================================================
+  ETDS PDF Renamer — Setup Instructions
+================================================================================
+
+QUICK START (Choose one method):
+
+METHOD 1: Double-click the bat file (RECOMMENDED)
+  → Start ETDS Dashboard.bat
+
+  This will:
+  • Find or download Python 3.11
+  • Create virtual environment
+  • Install all packages (flask, pymupdf, xlrd, etc)
+  • Launch the dashboard at http://localhost:5000
+
+METHOD 2: Double-click the Python launcher (If bat doesn't work)
+  → run.py
+
+  Same as METHOD 1, just using Python directly instead of batch
+
+METHOD 3: Command line (If you have Python installed)
+  → python setup.py
+  → Or: python run.py
+
+================================================================================
+
+TROUBLESHOOTING:
+
+Problem: "No module named 'xyz'"
+Solution:
+  • Make sure the bat file runs completely without errors
+  • Check that all packages are installed: py -m pip list
+  • Try METHOD 2 (run.py) instead
+
+Problem: "Permission denied" / "Access is denied"
+Solution:
+  • Run as Administrator (right-click → Run as administrator)
+  • Use METHOD 2 (run.py) which may need fewer permissions
+
+Problem: "Python not found"
+Solution:
+  • Install Python 3.8+ from: https://www.python.org/downloads/
+  • Make sure "Add Python to PATH" is checked during installation
+  • Or the bat file will auto-download Python 3.11
+
+Problem: "Download failed" / "Could not download Python"
+Solution:
+  • Check your internet connection
+  • Try a VPN if behind corporate firewall
+  • Download Python manually: https://www.python.org/downloads/
+  • Then run the bat file again
+
+Problem: Network/Firewall issues
+Solution:
+  • Try a different network (mobile hotspot, home WiFi, etc)
+  • Disable VPN temporarily
+  • Disable antivirus/firewall temporarily
+  • Contact your network administrator if on corporate network
+
+================================================================================
+
+WHAT GETS INSTALLED:
+
+The setup script automatically installs these packages:
+  • flask — Web framework for the dashboard
+  • pymupdf — PDF reading and barcode location
+  • zxing-cpp — Barcode decoding
+  • pillow — Image processing
+  • openpyxl — Excel file reading (modern format)
+  • xlrd — Excel file reading (legacy format)
+
+Installation location: project folder → venv/ (isolated, portable)
+
+================================================================================
+
+REQUIREMENTS:
+
+  • Windows 7+, macOS 10.12+, or Linux
+  • 100 MB free disk space
+  • Internet connection (one-time, for package download)
+  • Python 3.8+ (auto-downloaded if needed)
+
+================================================================================
+
+FILES IN THIS FOLDER:
+
+  Start ETDS Dashboard.bat  →  Main launcher (double-click to start)
+  run.py                   →  Python launcher (backup)
+  setup.py                 →  Installation script (called by above)
+  app.py                   →  The actual Flask dashboard
+  etds-renamer.html        →  Phase 1 (PDF renaming)
+
+================================================================================
+
+SUPPORT:
+
+If you encounter issues:
+  1. Try running as Administrator
+  2. Try a different network
+  3. Try METHOD 2 (run.py) instead of the bat file
+  4. Check that Python is installed: py --version
+
+For persistent issues, contact the development team with:
+  • Your Windows/Mac OS version
+  • Python version (py --version)
+  • Error messages shown during setup
+
+================================================================================
