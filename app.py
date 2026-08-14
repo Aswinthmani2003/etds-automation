@@ -16,15 +16,19 @@ import time
 import zipfile
 import datetime as _dt
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pymupdf as fitz
 import zxingcpp
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 import openpyxl
 from flask import Flask, request, send_file, jsonify
+from flask_compress import Compress
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
+app.config["COMPRESS_LEVEL"] = 6  # Gzip compression
+Compress(app)
 
 # ── Processing helpers ────────────────────────────────────────────────────────
 
@@ -284,8 +288,8 @@ def decode_barcode(pdf_bytes: bytes) -> str | None:
                 except Exception:
                     pass
 
-            # Strategy 3: render full page at multiple DPIs
-            for dpi in (300, 200, 150):
+            # Strategy 3: render full page at lower DPIs (faster)
+            for dpi in (200, 150):
                 pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
                 img = _pil_from_pixmap(pix)
                 for region in _image_regions(img):
@@ -320,46 +324,56 @@ def _run_job(job_id: str, excel_data: bytes, excel_name: str, pdf_list: list[tup
             _jobs[job_id]["excel_records"] = len(token_map)
             _jobs[job_id]["total"] = len(pdf_list)
 
-        results = []
+        results = [None] * len(pdf_list)
         zip_buf = io.BytesIO()
 
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for idx, (name, pdf_bytes) in enumerate(pdf_list):
+        def process_pdf(idx_name_bytes):
+            idx, name, pdf_bytes = idx_name_bytes
+            try:
+                token = decode_barcode(pdf_bytes)
+            except Exception as e:
+                return idx, {"name": name, "status": "error", "receipt": "",
+                             "pdf_barcode": "", "excel_barcode": "", "date": "",
+                             "msg": str(e)}, None
+
+            if not token:
+                return idx, {"name": name, "status": "no_barcode", "receipt": "",
+                             "pdf_barcode": "", "excel_barcode": "", "date": "",
+                             "msg": "No barcode found"}, None
+
+            barcode_key = digits_of(token)
+            entry = token_map.get(barcode_key)
+            if not entry and len(barcode_key) > 20:
+                entry = token_map.get(barcode_key[-20:])
+            if not entry:
+                return idx, {"name": name, "status": "not_found", "receipt": "",
+                             "pdf_barcode": barcode_key, "excel_barcode": "", "date": "",
+                             "msg": f"Barcode {barcode_key} not in Excel"}, None
+
+            token_number = entry["token"]
+            receipt_date = entry.get("date", "")
+            return idx, {"name": name, "status": "ok", "receipt": token_number,
+                         "pdf_barcode": barcode_key, "excel_barcode": barcode_key,
+                         "date": receipt_date, "msg": ""}, pdf_bytes
+
+        # Process PDFs in parallel (4 workers)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(process_pdf, (idx, name, pdf_bytes)): idx
+                      for idx, (name, pdf_bytes) in enumerate(pdf_list)}
+
+            for future in as_completed(futures):
+                idx, result, pdf_bytes = future.result()
+                results[idx] = result
                 with _jobs_lock:
                     _jobs[job_id]["current"] = idx + 1
-                    _jobs[job_id]["current_name"] = name
+                    _jobs[job_id]["current_name"] = results[idx]["name"]
 
-                try:
-                    token = decode_barcode(pdf_bytes)
-                except Exception as e:
-                    results.append({"name": name, "status": "error", "receipt": "",
-                                    "pdf_barcode": "", "excel_barcode": "", "date": "",
-                                    "msg": str(e)})
-                    continue
-
-                if not token:
-                    results.append({"name": name, "status": "no_barcode", "receipt": "",
-                                    "pdf_barcode": "", "excel_barcode": "", "date": "",
-                                    "msg": "No barcode found"})
-                    continue
-
-                # token is the 20-digit barcode value; look up → Token Number (15-digit)
-                barcode_key = digits_of(token)
-                entry = token_map.get(barcode_key)
-                if not entry and len(barcode_key) > 20:
-                    entry = token_map.get(barcode_key[-20:])
-                if not entry:
-                    results.append({"name": name, "status": "not_found", "receipt": "",
-                                    "pdf_barcode": barcode_key, "excel_barcode": "", "date": "",
-                                    "msg": f"Barcode {barcode_key} not in Excel"})
-                    continue
-
-                token_number = entry["token"]
-                receipt_date = entry.get("date", "")
-                zf.writestr(f"{token_number}.pdf", pdf_bytes)
-                results.append({"name": name, "status": "ok", "receipt": token_number,
-                                "pdf_barcode": barcode_key, "excel_barcode": barcode_key,
-                                "date": receipt_date, "msg": ""})
+        # Write results to zip
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for idx, (name, pdf_bytes) in enumerate(pdf_list):
+                if results[idx]["status"] == "ok":
+                    token_number = results[idx]["receipt"]
+                    zf.writestr(f"{token_number}.pdf", pdf_bytes)
 
         summary = {
             "ok":         sum(1 for r in results if r["status"] == "ok"),
