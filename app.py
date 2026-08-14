@@ -16,7 +16,8 @@ import time
 import zipfile
 import datetime as _dt
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
 import pymupdf as fitz
 import zxingcpp
@@ -209,74 +210,36 @@ def _pil_from_pixmap(pix: fitz.Pixmap) -> Image.Image:
 
 
 def _image_regions(img: Image.Image):
-    """
-    Yield the full image plus all useful sub-regions.
-
-    Many ETDS scans are landscape forms scanned in portrait mode: the barcode
-    sits as a VERTICAL STRIP on the left (or right) edge of the portrait image.
-    We must crop that strip and rotate it 90° to give the barcode reader a
-    normal horizontal barcode — because zxingcpp's internal try_rotate often
-    misses thin bars at low JPEG resolutions.
-    """
+    """Yield full image + fast subset of crops (optimized for speed with 250+ files)."""
     w, h = img.size
     yield img
 
-    # Horizontal crops (top / middle / bottom third)
-    for y0, y1 in [(0, h // 3), (h // 3, 2 * h // 3), (2 * h // 3, h)]:
-        yield img.crop((0, y0, w, y1))
-
-    # Vertical strip crops + 90° explicit rotations + 2× upscale
-    # ETDS forms are often landscape-scanned in portrait mode: barcode sits as a
-    # thin vertical strip on the left/right edge.  At ~150 DPI JPEG the bars are
-    # only 2-3 px wide — too thin to decode.  Rotating + 2× LANCZOS upscale
-    # brings bars to 4-6 px wide, which zxingcpp can read reliably.
-    for x0, x1 in [(0, w // 4), (0, w // 3), (3 * w // 4, w), (2 * w // 3, w)]:
+    # Skip horizontal crops - most barcodes are vertical strips anyway
+    # Vertical strip crops + rotations (faster: only left/right edges, no upscale)
+    for x0, x1 in [(0, w // 4), (3 * w // 4, w)]:
         strip = img.crop((x0, 0, x1, h))
         yield strip
         for angle in (90, -90):
             rotated = strip.rotate(angle, expand=True)
             yield rotated
-            rw, rh = rotated.size
-            yield rotated.resize((rw * 2, rh * 2), Image.LANCZOS)  # 2× upscale for thin bars
 
 
 def decode_barcode(pdf_bytes: bytes) -> str | None:
-    """
-    Extract a 20-digit barcode value from a PDF.
-    Strategy (fastest-first):
-      1. PDF text layer  — instant when number is printed as text
-      2. Embedded images — barcode reader on native-resolution scan images,
-                           with preprocessing + try_harder + region crops
-      3. Rendered pages  — same on full-page renders at 300 / 200 / 150 DPI
-    """
+    """Fast barcode extraction (optimized for 250+ files)."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
-        for page_num in range(min(3, doc.page_count)):
+        for page_num in range(min(2, doc.page_count)):  # Only first 2 pages
             page = doc.load_page(page_num)
 
-            # Strategy 1: text extraction
+            # Strategy 1: text extraction (instant if barcode is text)
             text = page.get_text()
             result = _extract_20digit(text)
             if result:
                 return result
 
-            # Strategy 2: embedded images at native resolution
+            # Strategy 2: embedded images (try once, fast)
             for img_info in page.get_images(full=True):
                 xref = img_info[0]
-
-                # 2a: via PyMuPDF Pixmap
-                try:
-                    pix = fitz.Pixmap(doc, xref)
-                    if pix.width >= 100 and pix.height >= 100:
-                        img = _pil_from_pixmap(pix)
-                        for region in _image_regions(img):
-                            result = _try_read_barcodes(region)
-                            if result:
-                                return result
-                except Exception:
-                    pass
-
-                # 2b: via doc.extract_image → PIL (handles JPEG/JPEG2000 differently)
                 try:
                     img_dict = doc.extract_image(xref)
                     if img_dict and img_dict.get("image"):
@@ -288,14 +251,13 @@ def decode_barcode(pdf_bytes: bytes) -> str | None:
                 except Exception:
                     pass
 
-            # Strategy 3: render full page at lower DPIs (faster)
-            for dpi in (200, 150):
-                pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
-                img = _pil_from_pixmap(pix)
-                for region in _image_regions(img):
-                    result = _try_read_barcodes(region)
-                    if result:
-                        return result
+            # Strategy 3: render at low DPI (150 only - fastest)
+            pix = page.get_pixmap(matrix=fitz.Matrix(150 / 72, 150 / 72))
+            img = _pil_from_pixmap(pix)
+            for region in _image_regions(img):
+                result = _try_read_barcodes(region)
+                if result:
+                    return result
 
     finally:
         doc.close()
@@ -356,8 +318,10 @@ def _run_job(job_id: str, excel_data: bytes, excel_name: str, pdf_list: list[tup
                          "pdf_barcode": barcode_key, "excel_barcode": barcode_key,
                          "date": receipt_date, "msg": ""}, pdf_bytes
 
-        # Process PDFs in parallel (4 workers)
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        # Process PDFs in parallel using multiprocessing (CPU-bound work, bypass GIL)
+        # Use all available CPU cores, up to 16
+        max_workers = min(cpu_count(), 16)
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_pdf, (idx, name, pdf_bytes)): idx
                       for idx, (name, pdf_bytes) in enumerate(pdf_list)}
 
