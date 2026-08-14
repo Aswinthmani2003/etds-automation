@@ -99,62 +99,55 @@ def main():
     else:
         print_success("pip upgraded")
 
-    # Step 4: Install packages
+    # Step 4: Install packages from requirements.txt
     print_header("Step 4: Installing required packages")
 
-    packages = [
-        "flask",
-        "pymupdf",
-        "zxing-cpp",
-        "pillow",
-        "openpyxl",
-        "xlrd"
-    ]
+    requirements_file = project_dir / "requirements.txt"
+    if not requirements_file.exists():
+        print_error("requirements.txt not found!")
+        sys.exit(1)
 
-    failed_packages = []
+    print_info("Installing all packages from requirements.txt...")
+    cmd = f'"{pip_cmd}" install -r "{requirements_file}"'
+    if not run_command(cmd, "Running: pip install -r requirements.txt"):
+        print_error("Package installation failed.")
+        print_info("Retrying with verbose output...")
+        cmd = f'"{pip_cmd}" install -r "{requirements_file}" --verbose'
+        if not run_command(cmd):
+            print_error("Installation failed. Check your internet connection.")
+            sys.exit(1)
 
-    for package in packages:
-        print_info(f"Installing {package}...")
-        cmd = f'"{pip_cmd}" install "{package}" --quiet'
-        if run_command(cmd):
-            print_success(f"{package} installed")
-        else:
-            print_error(f"Failed to install {package}")
-            failed_packages.append(package)
-
-    if failed_packages:
-        print_error(f"\nFailed to install: {', '.join(failed_packages)}")
-        print_info("Retrying failed packages...")
-        for package in failed_packages:
-            print_info(f"Retrying {package}...")
-            cmd = f'"{pip_cmd}" install "{package}"'
-            run_command(cmd)
+    print_success("All packages installed")
 
     # Step 5: Verify installation
     print_header("Step 5: Verifying installation")
 
     test_imports = [
         "flask",
+        "flask_compress",
         "pymupdf",
         "zxingcpp",
         "PIL",
         "openpyxl",
-        "xlrd"
+        "xlrd",
+        "gunicorn"
     ]
 
     all_good = True
     for module in test_imports:
         cmd = f'"{python_cmd}" -c "import {module}"'
-        if run_command(cmd):
-            print_success(f"{module} is available")
+        if run_command(cmd, f"Checking {module}..."):
+            print_success(f"{module} ✓")
         else:
-            print_error(f"{module} NOT available")
+            print_error(f"{module} ✗")
             all_good = False
 
     if not all_good:
         print_error("\nSome packages are missing!")
         print_info("Try running this script again or check your internet connection")
         sys.exit(1)
+
+    print_success("\nAll packages verified successfully!")
 
     # Step 6: Launch dashboard
     print_header("Step 6: Starting dashboard")
