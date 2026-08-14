@@ -332,18 +332,32 @@ def _run_job(job_id: str, excel_data: bytes, excel_name: str, pdf_list: list[tup
                          "date": receipt_date, "msg": ""}, pdf_bytes
 
         # Process PDFs in parallel using threading (safe for containers)
-        # Increased workers: barcode detection is I/O-bound (network, disk, images)
-        max_workers = 8  # Works well on Render's free tier (1 CPU)
+        max_workers = 8
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_pdf, (idx, name, pdf_bytes)): idx
-                      for idx, (name, pdf_bytes) in enumerate(pdf_list)}
+            future_to_idx = {executor.submit(process_pdf, (idx, name, pdf_bytes)): idx
+                            for idx, (name, pdf_bytes) in enumerate(pdf_list)}
 
-            for future in as_completed(futures):
-                idx, result, pdf_bytes = future.result()
-                results[idx] = result
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    idx, result, pdf_bytes = future.result(timeout=10)
+                    results[idx] = result
+                except Exception as e:
+                    # If a PDF times out or errors, mark it as error and continue
+                    if results[idx] is None:
+                        results[idx] = {
+                            "name": pdf_list[idx][0],
+                            "status": "error",
+                            "receipt": "",
+                            "pdf_barcode": "",
+                            "excel_barcode": "",
+                            "date": "",
+                            "msg": f"Timeout or error (skipped): {str(e)[:100]}"
+                        }
+
                 with _jobs_lock:
                     _jobs[job_id]["current"] = idx + 1
-                    _jobs[job_id]["current_name"] = results[idx]["name"]
+                    _jobs[job_id]["current_name"] = results[idx].get("name", "Unknown")
 
         # Write results to zip
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
