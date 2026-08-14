@@ -5,4 +5,3 @@ Pillow==11.0.0
 zxing-cpp==2.1.0
 openpyxl==3.1.5
 xlrd==2.0.1
-gunicorn==23.0.0

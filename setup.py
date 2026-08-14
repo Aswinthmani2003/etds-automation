@@ -129,8 +129,7 @@ def main():
         "zxingcpp",
         "PIL",
         "openpyxl",
-        "xlrd",
-        "gunicorn"
+        "xlrd"
     ]
 
     all_good = True
