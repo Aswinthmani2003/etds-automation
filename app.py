@@ -16,8 +16,7 @@ import time
 import zipfile
 import datetime as _dt
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pymupdf as fitz
 import zxingcpp
@@ -318,10 +317,10 @@ def _run_job(job_id: str, excel_data: bytes, excel_name: str, pdf_list: list[tup
                          "pdf_barcode": barcode_key, "excel_barcode": barcode_key,
                          "date": receipt_date, "msg": ""}, pdf_bytes
 
-        # Process PDFs in parallel using multiprocessing (CPU-bound work, bypass GIL)
-        # Use all available CPU cores, up to 16
-        max_workers = min(cpu_count(), 16)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Process PDFs in parallel using threading (safe for containers)
+        # Increased workers: barcode detection is I/O-bound (network, disk, images)
+        max_workers = 8  # Works well on Render's free tier (1 CPU)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(process_pdf, (idx, name, pdf_bytes)): idx
                       for idx, (name, pdf_bytes) in enumerate(pdf_list)}
 
